@@ -134,6 +134,17 @@ class UserForm extends Form
 			$actions->push(new ResetFormAction("clearForm", $clearText));
 		}
 
+        // Save and Revisit action
+        if ($this->controller->EnableSaveIncomplete) {
+            // Save and Revisit button text
+            $save = _t('UserDefinedForm.SAVEINCOMPLETEBUTTON', 'Save & Revisit');
+            if ($this->controller->SaveIncompleteButtonText) {
+                $save = $this->controller->SaveIncompleteButtonText;
+            }
+            // Add action
+            $actions->push(new FormAction("initiateSave", $save));
+        }
+
 		$this->extend('updateFormActions', $actions);
         $actions->setForm($this);
 		return $actions;

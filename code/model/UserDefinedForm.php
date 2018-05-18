@@ -57,7 +57,13 @@ class UserDefinedForm extends Page
         'HideFieldLabels' => 'Boolean',
         'DisplayErrorMessagesAtTop' => 'Boolean',
         'DisableAuthenicatedFinishAction' => 'Boolean',
-        'DisableCsrfSecurityToken' => 'Boolean'
+        'DisableCsrfSecurityToken' => 'Boolean',
+        'EnableSaveIncomplete' => 'Boolean',
+        'SaveIncompleteButtonText' => 'Varchar',
+        'SaveIncompleteEmailSubject' => 'Varchar',
+        'SaveOptionsMessage' => 'HTMLText',
+        'AuthenticateSaveIncomplete' => 'Boolean',
+        'SaveIncompleteEmailMessage' => 'Text'
     );
 
     /**
@@ -114,6 +120,12 @@ class UserDefinedForm extends Page
      * @var array
      */
     protected $fieldsFromTo = array();
+
+    /**
+     * Temprorary storage of fields (useful for unsaved submission)
+     * @var  ArrayList
+     */
+    protected $submittedFields;
 
     /**
      * @return FieldList
@@ -240,7 +252,7 @@ SQL;
             $submissions = GridField::create(
                 'Submissions',
                 _t('UserDefinedForm.SUBMISSIONS', 'Submissions'),
-                $self->Submissions()->sort('Created', 'DESC'),
+                $self->Submissions()->exclude('ClassName', IncompleteSubmittedForm::class)->sort('Created', 'DESC'),
                 $config
             );
             $fields->addFieldToTab('Root.Submissions', $submissions);
@@ -296,8 +308,34 @@ SQL;
      */
     public function getFormOptions()
     {
+        // Submit button text
         $submit = ($this->SubmitButtonText) ? $this->SubmitButtonText : _t('UserDefinedForm.SUBMITBUTTON', 'Submit');
+
+        // Clear button text
         $clear = ($this->ClearButtonText) ? $this->ClearButtonText : _t('UserDefinedForm.CLEARBUTTON', 'Clear');
+
+        // Save and revisit button text
+        $save = _t('UserDefinedForm.SAVEINCOMPLETEBUTTON', 'Save for later');
+        if ($this->SaveIncompleteButtonText) {
+            $save = $this->SaveIncompleteButtonText;
+        }
+
+        // Save incomplete options page message
+        $saveIncompleteOptionsFieldSet = new CompositeField(
+            $label = LabelField::create('SaveIncompleteOptionsMessageLabel', _t('UserDefinedForm.SAVEINCOMPLETEOPTIONSMESSAGELABEL', 'Show for save options')),
+            $editor = HtmlEditorField::create('SaveOptionsMessage', '', $this->SaveOptionsMessage)
+        );
+        $editor->setRows(3);
+        $label->addExtraClass('left');
+        $saveIncompleteOptionsFieldSet->addExtraClass('field');
+
+        // Save incomplete email
+        $saveIncompleteEmailFieldSet = CompositeField::create(
+            $label = LabelField::create('SaveIncompleteEmailLabel', _t('UserDefinedForm.SAVEINCOMPLETEEMAILLABEL', 'Show in Save &amp; Revisit email')),
+            $subject = TextField::create('SaveIncompleteEmailSubject', 'Subject', $this->SaveIncompleteEmailSubject),
+            $message = TextareaField::create('SaveIncompleteEmailMessage', 'Message', $this->SaveIncompleteEmailMessage)
+        );
+        $saveIncompleteEmailFieldSet->addExtraClass('field');
 
         $options = new FieldList(
             new TextField("SubmitButtonText", _t('UserDefinedForm.TEXTONSUBMIT', 'Text on submit button:'), $submit),
@@ -307,7 +345,18 @@ SQL;
             new CheckboxField("HideFieldLabels", _t('UserDefinedForm.HIDEFIELDLABELS', 'Hide field labels')),
             new CheckboxField("DisplayErrorMessagesAtTop", _t('UserDefinedForm.DISPLAYERRORMESSAGESATTOP', 'Display error messages above the form?')),
             new CheckboxField('DisableCsrfSecurityToken', _t('UserDefinedForm.DISABLECSRFSECURITYTOKEN', 'Disable CSRF Token')),
-            new CheckboxField('DisableAuthenicatedFinishAction', _t('UserDefinedForm.DISABLEAUTHENICATEDFINISHACTION', 'Disable Authentication on finish action'))
+            new CheckboxField('DisableAuthenicatedFinishAction', _t('UserDefinedForm.DISABLEAUTHENICATEDFINISHACTION', 'Disable Authentication on finish action')),
+            CheckboxField::create(
+                'EnableSaveIncomplete',
+                _t('UserDefinedForm.ENABLESAVEINCOMPLETE', 'Enable Save &amp; Revisit')
+            ),
+            CheckboxField::create(
+                'AuthenticateSaveIncomplete',
+                _t('UserDefinedForm.AUTHENTICATESAVEIMCOMPLETE', 'Users must login to Save & Revisit')
+            ),
+            TextField::create("SaveIncompleteButtonText", _t('UserDefinedForm.TEXTONSAVE', 'Text on save &amp; revisit button:'), $save),
+            $saveIncompleteOptionsFieldSet,
+            $saveIncompleteEmailFieldSet
         );
 
         $this->extend('updateFormOptions', $options);
@@ -367,6 +416,9 @@ class UserDefinedForm_Controller extends Page_Controller
         'index',
         'ping',
         'Form',
+        'SaveForm',
+        'save',
+        'restore',
         'finished'
     );
 
@@ -441,12 +493,51 @@ class UserDefinedForm_Controller extends Page_Controller
      * Get the form for the page. Form can be modified by calling {@link updateForm()}
      * on a UserDefinedForm extension.
      *
-     * @return Forms
+     * @return Form
      */
     public function Form()
     {
         $form = UserForm::create($this);
         $this->generateConditionalJavascript();
+        return $form;
+    }
+
+    /**
+     * Accept a users preferences and provide a way to revisit form at a later time
+     * @return  Form
+     */
+    public function SaveForm()
+    {
+        $fields = FieldList::create(
+            EmailField::create(
+                'Email',
+                _t('UserDefinedForm.PROVIDEEMAIL', 'Please provide your email'),
+                Member::currentUser() ? Member::currentUser()->Email : null
+            )
+        );
+
+        $this->extend('updateSaveFormFields', $fields);
+
+        // Save and Revisit button text
+        $save = _t('UserDefinedForm.SAVEINCOMPLETEBUTTON', 'Save & Revisit');
+        if ($this->SaveIncompleteButtonText) {
+            $save = $this->SaveIncompleteButtonText;
+        }
+
+        $actions = FieldList::create(
+            FormAction::create('saveIncomplete', $save),
+            LiteralField::create('cancelSaveIncomplete', sprintf('<a href="%s" class="btn btn-default">%s</a>', $this->Link(), _t('UserDefinedForm.CANCELSAVEINCOMPLETE', 'Go back')))
+        );
+
+        $this->extend('updateSaveFormActions', $actions);
+
+        $required = RequiredFields::create(
+            'Email'
+        );
+
+        $this->extend('updateSaveFormValidation', $required);
+
+        $form = Form::create($this, 'SaveForm', $fields, $actions, $required);
         return $form;
     }
 
@@ -488,6 +579,85 @@ JS
     }
 
     /**
+     * Store the data, submitted to a form, as submitted database values. Stores
+     * submitted fields in UserDefinedForm::$submittedFields for later reference
+     * @param  SubmittedForm $submittedForm
+     * @param  array         $data
+     * @param  From          $form          The form, used to collect validation
+     * messages
+     * @return SubmittedForm
+     */
+    public function storeDataInto($submittedForm, $data, $form = null, $write = true)
+    {
+
+        $fields = $this->Fields();
+        $this->submittedFields = ArrayList::create();
+
+        $this->extend('beforeStoreDataInto', $submittedForm, $data, $fields);
+
+        // Use hydrated fields for storing behaviour
+        foreach ($fields as $field) {
+            if (!$field->showInReports()) {
+                continue;
+            }
+
+            // Get the field's corresponding submitted field
+            $submittedField = $field->getSubmittedFormField();
+            $submittedField->ParentID = $submittedForm->ID;
+            $submittedField->Name = $field->Name;
+            $submittedField->Title = $field->getField('Title');
+
+            // Save the value from the data
+            if ($field->hasMethod('getValueFromData')) {
+                $submittedField->Value = $field->getValueFromData($data);
+            } else {
+                if (isset($data[$field->Name])) {
+                    $submittedField->Value = $data[$field->Name];
+                }
+            }
+
+            // Handle files
+            if (!empty($data[$field->Name])) {
+                if (in_array("EditableFileField", $field->getClassAncestry())) {
+                    if (isset($_FILES[$field->Name])) {
+                        $foldername = $field->getFormField()->getFolderName();
+
+                        // create the file from post data
+                        $upload = new Upload();
+                        $file = new File();
+                        $file->ShowInSearch = 0;
+                        try {
+                            $upload->loadIntoFile($_FILES[$field->Name], $file, $foldername);
+                        } catch (ValidationException $e) {
+                            $validationResult = $e->getResult();
+                            if ($form) {
+                                $form->addErrorMessage($field->Name, $validationResult->message(), 'bad');
+                            }
+                            Controller::curr()->redirectBack();
+                            return;
+                        }
+
+                        // write file to form field
+                        $submittedField->UploadedFileID = $file->ID;
+                    }
+                }
+            }
+
+            $submittedField->extend('onPopulationFromField', $field);
+
+            if ($write) {
+                $submittedField->write();
+            }
+
+            $this->getSubmittedFields()->push($submittedField);
+        }
+
+        $this->extend('afterStoreDataInto', $submittedForm);
+
+        return $submittedForm;
+    }
+
+    /**
      * Process the form that is submitted through the site
      *
      * {@see UserForm::validate()} for validation step prior to processing
@@ -508,64 +678,19 @@ JS
             $submittedForm->write();
         }
 
+        // Store values
+        $submittedForm = $this->storeDataInto($submittedForm, $data, $form, !$this->DisableSaveSubmissions);
+
+        // Get submitted values
+        $submittedFields = $this->getSubmittedFields();
+
+        // Generate attachments
         $attachments = array();
-        $submittedFields = new ArrayList();
-
-        foreach ($this->Fields() as $field) {
-            if (!$field->showInReports()) {
-                continue;
+        foreach ($submittedFields->filter('ClassName', 'EditableFileField') as $field) {
+            // attach a file only if lower than 1MB
+            if ($field->UploadedFile()->getAbsoluteSize() < 1024*1024*1) {
+                $attachments[] = $field->UploadedFile();
             }
-
-            $submittedField = $field->getSubmittedFormField();
-            $submittedField->ParentID = $submittedForm->ID;
-            $submittedField->Name = $field->Name;
-            $submittedField->Title = $field->getField('Title');
-
-            // save the value from the data
-            if ($field->hasMethod('getValueFromData')) {
-                $submittedField->Value = $field->getValueFromData($data);
-            } else {
-                if (isset($data[$field->Name])) {
-                    $submittedField->Value = $data[$field->Name];
-                }
-            }
-
-            if (!empty($data[$field->Name])) {
-                if (in_array("EditableFileField", $field->getClassAncestry())) {
-                    if (isset($_FILES[$field->Name])) {
-                        $foldername = $field->getFormField()->getFolderName();
-
-                        // create the file from post data
-                        $upload = new Upload();
-                        $file = new File();
-                        $file->ShowInSearch = 0;
-                        try {
-                            $upload->loadIntoFile($_FILES[$field->Name], $file, $foldername);
-                        } catch (ValidationException $e) {
-                            $validationResult = $e->getResult();
-                            $form->addErrorMessage($field->Name, $validationResult->message(), 'bad');
-                            Controller::curr()->redirectBack();
-                            return;
-                        }
-
-                        // write file to form field
-                        $submittedField->UploadedFileID = $file->ID;
-
-                        // attach a file only if lower than 1MB
-                        if ($file->getAbsoluteSize() < 1024*1024*1) {
-                            $attachments[] = $file;
-                        }
-                    }
-                }
-            }
-
-            $submittedField->extend('onPopulationFromField', $field);
-
-            if (!$this->DisableSaveSubmissions) {
-                $submittedField->write();
-            }
-
-            $submittedFields->push($submittedField);
         }
 
         $emailData = array(
@@ -703,6 +828,203 @@ JS
     }
 
     /**
+     * Form handler for UserForm. Preserve from data, and redirect the user to
+     * save procedure Expects validation to subdue user, if attempting to save
+     * invalid data
+     * @param  array $data
+     * @param  Form  $form
+     * @return             Redirection
+     */
+    public function initiateSave($data, $form)
+    {
+        // Confirm data is stored in session.
+        Session::set("FormInfo.{$form->FormName()}.data", $data);
+
+        // Redirect user to email request
+        $this->redirect($this->Link('save'));
+    }
+
+    /**
+     * Form handler for SaveForm(). Save an incomplete form, to be
+     * restored at a later point in time
+     * @param  array        $data
+     * @param  Form         $form
+     * @return HTTPResponse       A redirect
+     */
+    public function saveIncomplete($data, $form)
+    {
+        // Check if authentication is required
+        if ($this->AuthenticateSaveIncomplete) {
+            if (!Member::currentUser()) {
+                return $this->redirectBack();
+            }
+        }
+
+        // Get submitted data
+        $submittedData = Session::get("FormInfo.{$this->Form()->FormName()}.data");
+
+        // Generate a hash
+        $secret = IncompleteSubmittedForm::generateHash();
+
+        $this->extend('updateIncompleteSubmittedFormSecret', $secret);
+
+        // Submit to incomplete form object
+        $submittedForm = IncompleteSubmittedForm::create([
+            'SubmittedByID' => ($id = Member::currentUserID()) ? $id : 0,
+            'ParentID' => $this->ID,
+            'Secret' => $secret
+        ]);
+        $submittedForm->write();
+
+        $this->extend('onBeforeSaveIncompleteForm', $submittedForm);
+
+        // Exclude files
+        foreach ($this->Fields() as $field) {
+            if (in_array("EditableFileField", $field->getClassAncestry())) {
+                unset($submittedData[$field->Name]);
+            }
+        }
+
+        // Store data
+        // Assumes data has been well validated by this point
+        $submittedForm = $this->storeDataInto($submittedForm, $submittedData);
+        $submittedForm->write();
+
+        $this->extend('onAfterSaveIncompleteForm', $submittedForm);
+
+        // Supply restoration artifacts based on user's save preferences
+        $email = $data['Email'];
+        $restoreLink = Controller::join_links($this->AbsoluteLink(), "restore", "?reference=" . urlencode($secret));
+
+        // Generate email
+        // Subject
+        $subject = _t('UserDefinedForm.SAVEINCOMPLETEBUTTON', 'Restore your progress on ' . $this->getTitle());
+        if ($this->SaveIncompleteEmailSubject) {
+            $subject = $this->SaveIncompleteEmailSubject;
+        }
+
+        // Render body
+        $body = $this->customise(['RestoreLink' => $restoreLink])->renderWith('SaveIncompleteEmail');
+
+        // Setup email
+        $email = Email::create(null, $email, $subject, $body);
+
+        $this->extend('onBeforeSendSavedEmail', $email);
+
+        // Send email
+        $email->send();
+
+        return $this->redirect($this->Link());
+    }
+
+    /**
+     * Return to user defined form
+     * @param  array        $data
+     * @param  Form         $form
+     * @return HTTPResponse       Redirect
+     */
+    public function cancelSaveIncomplete($data, $form)
+    {
+        return $this->redirect($this->Link());
+    }
+
+    /**
+     * Provide the user with options for saving an incomplete form
+     * @return ViewableData
+     */
+    public function save()
+    {
+        // Check if authentication is required
+        // Assumes the session with preserve the userdefinedform data
+        if ($this->AuthenticateSaveIncomplete) {
+            if (!Member::currentUser()) {
+                return Security::permissionFailure($this, _t('UserDefinedForm.AUTHENTICATESAVELOGINMESSAGE', 'Please login to save your progress'));
+            }
+        }
+
+        return $this->customise(array(
+            'Content' => $this->renderWith('SaveIncomplete'),
+            'Form' => $this->SaveForm(),
+        ));
+    }
+
+    /**
+     * Hydrate the userdefinedform with previously saved field values
+     * @return HTTPResponse
+     */
+    public function restore()
+    {
+        // Check if authentication is required
+        if ($this->AuthenticateSaveIncomplete) {
+            if (!Member::currentUser()) {
+                return Security::permissionFailure($this, _t('UserDefinedForm.AUTHENTICATERESTOREMESSAGE', 'Please login to restore progress'));
+            }
+        }
+
+        // Check for correct vars
+        if (!$this->getRequest()->getVar('reference')) {
+            return $this->httpError('404', _t('UserDefinedForm.RESTORENOTFOUND', 'Progress restoration reference not found'));
+        }
+
+        // Get secret
+        $secret = $this->getRequest()->getVar('reference');
+
+        // Get submitted form
+        $incompleteSubmittedForm = IncompleteSubmittedForm::get()->filter('Secret', $secret)->first();
+
+        // Check form is available
+        if (!$incompleteSubmittedForm) {
+            return $this->httpError('404', _t('UserDefinedForm.RESTORENOTFOUND', 'Progress restoration reference not found'));
+        }
+
+        // Check that user has access
+        if (!$incompleteSubmittedForm->canView(Member::currentUser())) {
+            return Security::permissionFailure($this, _t('UserDefinedForm.PERMISSIONFAILED', 'Please login with the same account used to save the form'));
+        }
+
+        // Hydrate form session with data
+        $data = [];
+        $fieldMap = $incompleteSubmittedForm->Values()->map('Name', 'Value')->toArray();
+
+        foreach ($fieldMap as $name => $value) {
+            $data = array_merge_recursive($data, $this->convertFieldNameToAssoc($name, $value));
+        }
+
+        // Set form session, for form to load after redirect
+        Session::set("FormInfo.{$this->Form()->FormName()}.data", $data);
+
+        // Redirect to index
+        return $this->redirect($this->Link());
+    }
+
+    /**
+     * Convert a php-style fieldname to an associative array e.g
+     * FieldGroup[FieldTopic][FieldName]
+     * @param  string $name  The field name
+     * @param  mixed  $value The field value
+     * @return array
+     */
+    public function convertFieldNameToAssoc($name, $value)
+    {
+        // Get structure from fieldname
+        $keys = explode('[', $name);
+
+        // Setup json string
+        $parts = ['', ''];
+
+        // Define multi-dimensional structure
+        foreach ($keys as $key) {
+            $parts[0] .= '{"' . rtrim($key, ']') . '":';
+            $parts[1] .= '}'; // Will be applied after value is assigned
+        }
+
+        // Set value
+        $parts[0] .= "\"$value\"";
+
+        return json_decode(implode('', $parts), true);
+    }
+
+    /**
      * This action handles rendering the "finished" message, which is
      * customizable by editing the ReceivedFormSubmission template.
      *
@@ -784,5 +1106,23 @@ EOS;
         }
 
         return $result;
+    }
+
+    /**
+     * @return ArrayList
+     */
+    public function getSubmittedFields()
+    {
+        return $this->submittedFields;
+    }
+
+    /**
+     * @param  SS_List        $fields
+     * @return UseDefinedForm         $this
+     */
+    public function setSubmittedFields($list)
+    {
+        $this->submittedFields = $list;
+        return $this;
     }
 }
