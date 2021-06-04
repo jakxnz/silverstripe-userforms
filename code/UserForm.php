@@ -28,6 +28,7 @@ use SilverStripe\Forms\LiteralField;
 use SilverStripe\Forms\TextField;
 use SilverStripe\ORM\ArrayList;
 use SilverStripe\ORM\DB;
+use SilverStripe\ORM\HasManyList;
 use SilverStripe\UserForms\Extension\UserFormFieldEditorExtension;
 use SilverStripe\UserForms\Extension\UserFormValidator;
 use SilverStripe\UserForms\Form\UserFormsGridFieldFilterHeader;
@@ -39,8 +40,21 @@ use SilverStripe\View\Requirements;
 use SilverStripe\Core\Config\Configurable;
 
 /**
- * Defines the user defined functionality to be applied to any {@link DataObject}
+ * Supplies the user define-able functionality to be applied to any {@link DataObject}
  *
+ * @property string SubmitButtonText
+ * @property string ClearButtonText
+ * @property string OnCompleteMessage
+ * @property bool ShowClearButton
+ * @property bool DisableSaveSubmissions
+ * @property bool EnableLiveValidation
+ * @property bool DisplayErrorMessagesAtTop
+ * @property bool DisableAuthenicatedFinishAction
+ * @property bool DisableCsrfSecurityToken
+ * @method HasManyList|SubmittedForm[] Submissions()
+ * @method HasManyList|EmailRecipient[] EmailRecipients()
+ *
+ * @mixin UserFormFieldEditorExtension
  */
 trait UserForm
 {

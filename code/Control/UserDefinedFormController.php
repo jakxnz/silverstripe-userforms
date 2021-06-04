@@ -14,6 +14,7 @@ use SilverStripe\Control\HTTPResponse;
 use SilverStripe\Control\HTTPRequest;
 use SilverStripe\Core\Injector\Injector;
 use SilverStripe\Core\Manifest\ModuleLoader;
+use SilverStripe\Dev\Deprecation;
 use SilverStripe\Forms\Form;
 use SilverStripe\i18n\i18n;
 use SilverStripe\ORM\ArrayList;
@@ -217,10 +218,11 @@ JS
      */
     public function process($data, $form)
     {
+        $userform = $this->data(0);
         $submittedForm = SubmittedForm::create();
         $submittedForm->SubmittedByID = Security::getCurrentUser() ? Security::getCurrentUser()->ID : 0;
-        $submittedForm->ParentClass = get_class($this->data());
-        $submittedForm->ParentID = $this->ID;
+        $submittedForm->ParentClass = get_class($userform);
+        $submittedForm->ParentID = $userform->ID;
 
         // if saving is not disabled save now to generate the ID
         if (!$this->DisableSaveSubmissions) {
@@ -231,64 +233,28 @@ JS
         $submittedFields = ArrayList::create();
 
         foreach ($this->data()->Fields() as $field) {
+            /** @var $field EditableFormField */
             if (!$field->showInReports()) {
                 continue;
             }
 
+            // Prepare a record to store form submission
             $submittedField = $field->getSubmittedFormField();
-            $submittedField->ParentID = $submittedForm->ID;
-            $submittedField->Name = $field->Name;
-            $submittedField->Title = $field->getField('Title');
 
-            // save the value from the data
-            if ($field->hasMethod('getValueFromData')) {
-                $submittedField->Value = $field->getValueFromData($data);
-            } else {
-                if (isset($data[$field->Name])) {
-                    $submittedField->Value = $data[$field->Name];
-                }
+            // Set the parent by using the setParent() mutator instead of the
+            // usual component assignment, to support unsaved submissions
+            $submittedField->setParent($submittedForm);
+
+            // Capture data from request data
+            $submittedField->populateFromData($data, $submittedForm, $this->data());
+
+            if ($submittedForm->hasMethod('onPopulationFromField')) {
+                Deprecation::notice('6.0', 'Use afterPopulateFromData($data) instead of onPopulationFromField($field)');
+                $submittedField->extend('onPopulationFromField', $field);
             }
 
-            if (!empty($data[$field->Name])) {
-                if (in_array(EditableFileField::class, $field->getClassAncestry())) {
-                    if (!empty($_FILES[$field->Name]['name'])) {
-                        $foldername = $field->getFormField()->getFolderName();
-
-                        // create the file from post data
-                        $upload = Upload::create();
-                        try {
-                            $upload->loadIntoFile($_FILES[$field->Name], null, $foldername);
-                        } catch (ValidationException $e) {
-                            $validationResult = $e->getResult();
-                            foreach ($validationResult->getMessages() as $message) {
-                                $form->sessionMessage($message['message'], ValidationResult::TYPE_ERROR);
-                            }
-                            Controller::curr()->redirectBack();
-                            return;
-                        }
-                        /** @var AssetContainer|File $file */
-                        $file = $upload->getFile();
-                        $file->ShowInSearch = 0;
-                        $file->write();
-
-                        // generate image thumbnail to show in asset-admin
-                        // you can run userforms without asset-admin, so need to ensure asset-admin is installed
-                        if (class_exists(AssetAdmin::class)) {
-                            AssetAdmin::singleton()->generateThumbnails($file);
-                        }
-
-                        // write file to form field
-                        $submittedField->UploadedFileID = $file->ID;
-
-                        // attach a file only if lower than 1MB
-                        if ($file->getAbsoluteSize() < 1024 * 1024 * 1) {
-                            $attachments[] = $file;
-                        }
-                    }
-                }
-            }
-
-            $submittedField->extend('onPopulationFromField', $field);
+            // Provide hook to manipulate captured data and submission records
+            $submittedField->invokeWithExtensions('afterPopulateFromData', $data);
 
             if (!$this->DisableSaveSubmissions) {
                 $submittedField->write();
@@ -304,6 +270,8 @@ JS
             'Body' => '',
         ];
 
+        $attachments = $submittedForm->getAttachments();
+
         $this->extend('updateEmailData', $emailData, $attachments);
 
         // email users on submit.
@@ -316,18 +284,28 @@ JS
                 // Merge fields are used for CMS authors to reference specific form fields in email content
                 $mergeFields = $this->getMergeFieldsMap($emailData['Fields']);
 
-                if ($attachments) {
-                    foreach ($attachments as $file) {
-                        /** @var File $file */
-                        if ((int) $file->ID === 0) {
-                            continue;
-                        }
+                if (count($attachments)) {
+                    foreach ($attachments as $attachment) {
+                        if ($attachment instanceof File) {
+                            /** @var File $file */
+                            if ((int) $file->ID === 0) {
+                                continue;
+                            }
 
-                        $email->addAttachmentFromData(
-                            $file->getString(),
-                            $file->getFilename(),
-                            $file->getMimeType()
-                        );
+                            $email->addAttachmentFromData(
+                                $file->getString(),
+                                $file->getFilename(),
+                                $file->getMimeType()
+                            );
+                        } else {
+                            // Assumes attachment shape has been validated
+                            // during SubmittedForm::addAttachment()
+                            $email->addAttachment(
+                                $attachment['tmp_name'],
+                                $attachment['name'],
+                                $attachment['type']
+                            );
+                        }
                     }
                 }
 

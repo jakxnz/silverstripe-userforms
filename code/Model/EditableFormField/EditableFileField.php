@@ -2,6 +2,7 @@
 
 namespace SilverStripe\UserForms\Model\EditableFormField;
 
+use OPCNZ\Website\Model\SubmittedMultiFileField;
 use SilverStripe\Assets\File;
 use SilverStripe\Assets\Folder;
 use SilverStripe\Assets\Upload_Validator;
@@ -45,6 +46,12 @@ class EditableFileField extends EditableFormField
     private static $allowed_extensions_blacklist = [
         'htm', 'html', 'xhtml', 'swf', 'xml'
     ];
+
+    /**
+     * @config
+     * @var string
+     */
+    private static $submitted_form_field_type = SubmittedFileField::class;
 
     /**
      * @return FieldList
@@ -98,8 +105,9 @@ class EditableFileField extends EditableFormField
         return $result;
     }
 
-
-
+    /**
+     * @return FormField
+     */
     public function getFormField()
     {
         $field = FileField::create($this->Name, $this->Title ?: false)
@@ -146,11 +154,6 @@ class EditableFileField extends EditableFormField
     public function getValueFromData()
     {
         return null;
-    }
-
-    public function getSubmittedFormField()
-    {
-        return SubmittedFileField::create();
     }
 
     /**

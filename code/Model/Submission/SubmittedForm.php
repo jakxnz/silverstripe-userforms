@@ -2,6 +2,8 @@
 
 namespace SilverStripe\UserForms\Model\Submission;
 
+use \InvalidArgumentException;
+use SilverStripe\Assets\File;
 use SilverStripe\Forms\FieldList;
 use SilverStripe\Forms\GridField\GridField;
 use SilverStripe\Forms\GridField\GridFieldButtonRow;
@@ -13,30 +15,96 @@ use SilverStripe\Forms\GridField\GridFieldToolbarHeader;
 use SilverStripe\Forms\ReadonlyField;
 use SilverStripe\ORM\DataObject;
 use SilverStripe\ORM\DB;
+use SilverStripe\ORM\HasManyList;
 use SilverStripe\Security\Member;
+use SilverStripe\UserForms\Model\UserDefinedForm;
 
+/**
+ * The submitted record of a {@link UserDefinedForm}
+ *
+ * @property int SubmittedByID
+ * @property int ParentID
+ * @property string ParentClass Used for mapping page record for legacy support
+ * @method Member SubmittedBy()
+ * @method DataObject|UserDefinedForm Parent()
+ * @method HasManyList|SubmittedFormField[] Values()
+ */
 class SubmittedForm extends DataObject
 {
+    /**
+     * @config
+     * @var array
+     */
     private static $has_one = [
         'SubmittedBy' => Member::class,
         'Parent' => DataObject::class,
     ];
 
+    /**
+     * @config
+     * @var array
+     */
     private static $has_many = [
         'Values' => SubmittedFormField::class
     ];
 
+    /**
+     * @config
+     * @var array
+     */
     private static $cascade_deletes = [
         'Values',
     ];
 
+    /**
+     * @config
+     * @var array
+     */
     private static $summary_fields = [
         'ID',
         'Created'
     ];
 
+    /**
+     * @config
+     * @var array
+     */
     private static $table_name = 'SubmittedForm';
 
+    /**
+     * Attachments produced from uploaded files
+     *
+     * @var array
+     */
+    protected $attachments = [];
+
+    /**
+     * @param array $attachment
+     */
+    private static function isValidAttachment($attachment)
+    {
+        $valid = false;
+
+        // Allow File objects
+        $valid = $valid || $attachment instanceof File;
+
+        // Allow attachments that matches the shape of a PHP file upload
+        // https://www.php.net/manual/en/features.file-upload.post-method.php
+        $valid = $valid || (
+                array_key_exists('name', $attachment) &&
+                array_key_exists('tmp_name', $attachment) &&
+                (
+                    $attachment['name'] !== '' &&
+                    $attachment['tmp_name'] !== ''
+                )
+            );
+
+        return $valid;
+    }
+
+    /**
+     * {@inheritDoc}
+     */
     public function requireDefaultRecords()
     {
         parent::requireDefaultRecords();
@@ -117,6 +185,57 @@ class SubmittedForm extends DataObject
         $fields = parent::getCMSFields();
 
         return $fields;
+    }
+
+    /**
+     * @return array
+     */
+    public function getAttachments()
+    {
+        return $this->attachments;
+    }
+
+    /**
+     * Stores attachments in memory. Not written to the database. Useful
+     * for preparing a submitted form's outbound email content
+     *
+     * @param array $attachments
+     * @return SubmittedForm
+     */
+    public function setAttachments($attachments)
+    {
+        foreach ($attachments as $attachment) {
+            if (!static::isValidAttachment($attachment)) {
+                throw new InvalidArgumentException(
+                    'Supplied $attachments must each be a File object or contain file information (name and tmp_name)'
+                );
+            }
+        }
+
+        $this->attachments = $attachments;
+
+        return $this;
+    }
+
+    /**
+     * Store an attachments in memory. Not written to the database. Useful
+     * for preparing a submitted form's outbound email content
+     *
+     * @param array $attachment
+     * @return SubmittedForm
+     * @throws InvalidArgumentException
+     */
+    public function addAttachment($attachment)
+    {
+        if (!static::isValidAttachment($attachment)) {
+            throw new InvalidArgumentException(
+                'Supplied $attachment must be a File object or an array containing file information (name and tmp_name)'
+            );
+        }
+
+        $this->attachments[] = $attachment;
+
+        return $this;
     }
 
     /**

@@ -13,19 +13,24 @@ use SilverStripe\Forms\GridField\GridFieldDeleteAction;
 use SilverStripe\Forms\GridField\GridFieldDetailForm;
 use SilverStripe\Forms\GridField\GridFieldToolbarHeader;
 use SilverStripe\ORM\DataExtension;
+use SilverStripe\ORM\HasManyList;
 use SilverStripe\UserForms\Form\GridFieldAddClassesButton;
 use SilverStripe\UserForms\Model\EditableFormField;
 use SilverStripe\UserForms\Model\EditableFormField\EditableFieldGroup;
 use SilverStripe\UserForms\Model\EditableFormField\EditableFieldGroupEnd;
 use SilverStripe\UserForms\Model\EditableFormField\EditableFormStep;
 use SilverStripe\UserForms\Model\EditableFormField\EditableTextField;
+use SilverStripe\UserForms\Model\UserDefinedForm;
+use SilverStripe\UserForms\UserForm;
 use SilverStripe\Versioned\Versioned;
 use SilverStripe\View\Requirements;
 use Symbiote\GridFieldExtensions\GridFieldEditableColumns;
 use Symbiote\GridFieldExtensions\GridFieldOrderableRows;
 
 /**
- * @package userforms
+ * An extension for objects using the {@link UserForm} trait, such as {@link UserDefinedForm}
+ *
+ * @method HasManyList|EditableFormField[] Fields()
  */
 class UserFormFieldEditorExtension extends DataExtension
 {

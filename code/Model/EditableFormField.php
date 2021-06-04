@@ -8,6 +8,7 @@ use SilverStripe\Control\Controller;
 use SilverStripe\Core\ClassInfo;
 use SilverStripe\Core\Config\Config;
 use SilverStripe\Core\Convert;
+use SilverStripe\Core\Injector\Injector;
 use SilverStripe\Core\Manifest\ModuleLoader;
 use SilverStripe\Forms\CheckboxField;
 use SilverStripe\Forms\DropdownField;
@@ -35,6 +36,7 @@ use SilverStripe\UserForms\Extension\UserFormFieldEditorExtension;
 use SilverStripe\UserForms\Model\EditableFormField\EditableFieldGroup;
 use SilverStripe\UserForms\Model\EditableFormField\EditableFieldGroupEnd;
 use SilverStripe\UserForms\Model\EditableFormField\EditableFormStep;
+use SilverStripe\UserForms\Model\Submission\SubmittedFileField;
 use SilverStripe\UserForms\Model\Submission\SubmittedFormField;
 use SilverStripe\UserForms\Modifier\DisambiguationSegmentFieldModifier;
 use SilverStripe\UserForms\Modifier\UnderscoreSegmentFieldModifier;
@@ -141,7 +143,6 @@ class EditableFormField extends DataObject
         'ShowOnLoad' => true,
     ];
 
-
     /**
      * @config
      * @var array
@@ -168,15 +169,35 @@ class EditableFormField extends DataObject
         'DisplayRules' => EditableCustomRule::class . '.Parent'
     ];
 
+    /**
+     * @config
+     * @var array
+     */
     private static $owns = [
         'DisplayRules',
     ];
 
+    /**
+     * @config
+     * @var array
+     */
     private static $cascade_deletes = [
         'DisplayRules',
     ];
 
+    /**
+     * @config
+     * @var bool
+     */
     private static $cascade_duplicates = false;
+
+    /**
+     * The record used to submit this field's form data
+     *
+     * @config
+     * @var string
+     */
+    private static $submitted_form_field_type = SubmittedFormField::class;
 
     /**
      * @var bool
@@ -790,13 +811,38 @@ class EditableFormField extends DataObject
     }
 
     /**
-     * Return the instance of the submission field class
+     * The submitted form field type used to submit this editable form field
+     *
+     * @return string A SubmittedFormField FQCN
+     */
+    public function getSubmittedFormFieldType()
+    {
+        $type = $this->config()->get('submitted_form_field_type');
+
+        $this->extend('updateSubmittedFormFieldType', $type);
+
+        return $type;
+    }
+
+    /**
+     * An instance of the submission field class
      *
      * @return SubmittedFormField
      */
     public function getSubmittedFormField()
     {
-        return SubmittedFormField::create();
+        // Establish the configured submitted field type (also allows any
+        // InjectorNotFoundException to interrupt processing if we're misconfigured)
+        /** @var SubmittedFormField $submittedField */
+        $submittedField = Injector::inst()->create($this->getSubmittedFormFieldType());
+
+        /** Enforce Name property for {@see SubmittedFormField::getEditableField()} */
+        $submittedField->Name = $this->Name;
+
+        // Add details for submitted form output
+        $submittedField->Title = $this->Title;
+
+        return $submittedField;
     }
 
 
