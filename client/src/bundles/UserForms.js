@@ -536,6 +536,7 @@ jQuery(document).ready(($) => {
         userform.$el.trigger('userform.form.submit');
       } else {
         userform.errorContainer.show();
+        userform.$el.trigger('userform.form.submitinvalid');
       }
     },
     // When a field becomes valid.

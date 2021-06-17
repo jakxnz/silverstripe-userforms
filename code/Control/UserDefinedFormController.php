@@ -229,7 +229,6 @@ JS
             $submittedForm->write();
         }
 
-        $attachments = [];
         $submittedFields = ArrayList::create();
 
         foreach ($this->data()->Fields() as $field) {
@@ -274,7 +273,7 @@ JS
 
         $this->extend('updateEmailData', $emailData, $attachments);
 
-        // email users on submit.
+        // Email recipients on submit
         if ($recipients = $this->FilteredEmailRecipients($data, $form)) {
             foreach ($recipients as $recipient) {
                 $email = Email::create()
@@ -284,7 +283,9 @@ JS
                 // Merge fields are used for CMS authors to reference specific form fields in email content
                 $mergeFields = $this->getMergeFieldsMap($emailData['Fields']);
 
-                if (count($attachments)) {
+                if (count($attachments) && !$recipient->HideFormData) {
+                    // Consider uploaded files as form data
+                    // and attach them as an accompaniment
                     foreach ($attachments as $attachment) {
                         if ($attachment instanceof File) {
                             /** @var File $file */

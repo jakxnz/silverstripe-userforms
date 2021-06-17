@@ -30,6 +30,7 @@ use SilverStripe\ORM\DataList;
 use SilverStripe\ORM\DataObject;
 use SilverStripe\ORM\DB;
 use SilverStripe\ORM\FieldType\DBField;
+use SilverStripe\ORM\FieldType\DBHTMLText;
 use SilverStripe\ORM\ValidationResult;
 use SilverStripe\Security\Member;
 use SilverStripe\UserForms\Model\EditableFormField;
@@ -458,16 +459,45 @@ class EmailRecipient extends DataObject
     }
 
     /**
-     * Get the email body for the current email format
+     * Get the email body for the current email in plain text
      *
      * @return string
+     */
+    protected function getPlainEmailBodyContent()
+    {
+        $content = DBField::create_field('HTMLText', $this->EmailBody)->Plain();
+
+        $this->extend('updatePlainEmailBodyContent', $content);
+
+        return $content;
+    }
+
+    /**
+     * Get the HTML email body for the current email
+     *
+     * @return DBHTMLText
+     */
+    protected function getHTMLEmailBodyContent()
+    {
+        $content = DBField::create_field('HTMLText', $this->EmailBodyHtml);
+
+        $this->extend('updateHTMLEmailBodyContent', $content);
+
+        return $content;
+    }
+
+    /**
+     * Get the email body for the current email format
+     *
+     * @return string|DBHTMLText
      */
     public function getEmailBodyContent()
     {
         if ($this->SendPlain) {
-            return DBField::create_field('HTMLText', $this->EmailBody)->Plain();
+            return $this->getPlainEmailBodyContent();
         }
-        return DBField::create_field('HTMLText', $this->EmailBodyHtml);
+
+        return $this->getHTMLEmailBodyContent();
     }
 
     /**
